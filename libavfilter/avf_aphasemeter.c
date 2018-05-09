@@ -33,17 +33,25 @@
 #include "audio.h"
 #include "video.h"
 #include "internal.h"
+#include "libavutil/timestamp.h"
+#include "stdbool.h"
 
 typedef struct AudioPhaseMeterContext {
     const AVClass *class;
     AVFrame *out;
     int do_video;
+    int do_mono_detection;
+    int do_stereo_detection;
     int w, h;
     AVRational frame_rate;
     int contrast[4];
     uint8_t *mpc_str;
     uint8_t mpc[4];
     int draw_median_phase;
+    bool is_mono;
+    bool is_stereo;
+    float mono_idx[2];
+    float stereo_idx[2];
 } AudioPhaseMeterContext;
 
 #define OFFSET(x) offsetof(AudioPhaseMeterContext, x)
@@ -59,6 +67,8 @@ static const AVOption aphasemeter_options[] = {
     { "bc", "set blue contrast",  OFFSET(contrast[2]), AV_OPT_TYPE_INT, {.i64=1}, 0, 255, FLAGS },
     { "mpc", "set median phase color", OFFSET(mpc_str), AV_OPT_TYPE_STRING, {.str = "none"}, 0, 0, FLAGS },
     { "video", "set video output", OFFSET(do_video), AV_OPT_TYPE_BOOL, {.i64 = 1}, 0, 1, FLAGS },
+    { "monodetect", "detect mono", OFFSET(do_mono_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
+    { "stereodetect", "detect stereo", OFFSET(do_stereo_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
     { NULL }
 };
 
@@ -210,6 +220,48 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         snprintf(value, sizeof(value), "%f", fphase);
         av_dict_set(metadata, "lavfi.aphasemeter.phase", value, 0);
+    }
+
+    if (s->do_mono_detection) {
+        if ((s->is_mono == false) && (fphase == 1.0)) {
+            char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
+            float start_time = atof(start_time_str);
+            s->mono_idx[0] = start_time;
+            s->is_mono = true;
+        }
+        else if ((s->is_mono == true) && (fphase != 1.0)) {
+            char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
+            float end_time = atof(end_time_str);
+            float mono_duration;
+            s->mono_idx[1] = end_time;
+            mono_duration = s->mono_idx[1] - s->mono_idx[0];
+
+            av_log(s, AV_LOG_INFO, "mono_start: %f\n", s->mono_idx[0]);
+            av_log(s, AV_LOG_INFO, "mono_end: %f | mono_duration: %f\n", s->mono_idx[1], mono_duration);
+
+            s->is_mono = false;
+        }
+    }
+
+    if (s->do_stereo_detection) {
+        if ((s->is_stereo == false) && (fphase != 1.0)) {
+            char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
+            float start_time = atof(start_time_str);
+            s->stereo_idx[0] = start_time;
+            s->is_stereo = true;
+        }
+        else if ((s->is_stereo == true) && (fphase == 1.0)) {
+            char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
+            float end_time = atof(end_time_str);
+            float stereo_duration;
+            s->stereo_idx[1] = end_time;
+            stereo_duration = s->stereo_idx[1] - s->stereo_idx[0];
+
+            av_log(s, AV_LOG_INFO, "stereo_start: %f\n", s->stereo_idx[0]);
+            av_log(s, AV_LOG_INFO, "stereo_end: %f | stereo_duration: %f\n", s->stereo_idx[1], stereo_duration);
+
+            s->is_stereo = false;
+        }
     }
 
     if (s->do_video) {
