@@ -156,6 +156,17 @@ static inline int get_x(float phase, int w)
   return (phase + 1.) / 2. * (w - 1);
 }
 
+static float get_index(AVFilterLink *inlink, AVFrame *in)
+{
+    char *index_str = av_ts2timestr(in->pts, &inlink->time_base);
+    return atof(index_str);
+}
+
+static float get_duration(float index[2])
+{
+    return index[1] - index[0];
+}
+
 static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 {
     AVFilterContext *ctx = inlink->dst;
@@ -170,6 +181,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFrame *out;
     uint8_t *dst;
     int i;
+    float tolerance = 1.0 - s->tolerance;
+    float angle = cos(s->angle/180.0*pi);
 
     if (s->do_video && (!s->out || s->out->width  != outlink->w ||
                                    s->out->height != outlink->h)) {
@@ -228,22 +241,15 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         av_dict_set(metadata, "lavfi.aphasemeter.phase", value, 0);
     }
 
-    float tolerance = 1.0 - s->tolerance;
-    float angle = cos(s->angle/180.0*pi);
-
     if (s->do_phasing_detection) {
         if ((s->is_mono == false) && (fphase >= tolerance)) {
-            char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
-            float start_time = atof(start_time_str);
-            s->mono_idx[0] = start_time;
+            s->mono_idx[0] = get_index(inlink, in);
             s->is_mono = true;
         }
         if ((s->is_mono == true) && (fphase < tolerance)) {
-            char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
-            float end_time = atof(end_time_str);
             float mono_duration;
-            s->mono_idx[1] = end_time;
-            mono_duration = s->mono_idx[1] - s->mono_idx[0];
+            s->mono_idx[1] = get_index(inlink, in);
+            mono_duration = get_duration(s->mono_idx);
 
             av_log(s, AV_LOG_INFO, "mono_start: %f\n", s->mono_idx[0]);
             av_log(s, AV_LOG_INFO, "mono_end: %f | mono_duration: %f\n", s->mono_idx[1], mono_duration);
@@ -251,17 +257,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             s->is_mono = false;
         }
         if ((s->is_stereo == false) && (fphase < tolerance)) {
-            char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
-            float start_time = atof(start_time_str);
-            s->stereo_idx[0] = start_time;
+            s->stereo_idx[0] = get_index(inlink, in);
             s->is_stereo = true;
         }
         if ((s->is_stereo == true) && (fphase >= tolerance)) {
-            char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
-            float end_time = atof(end_time_str);
             float stereo_duration;
-            s->stereo_idx[1] = end_time;
-            stereo_duration = s->stereo_idx[1] - s->stereo_idx[0];
+            s->stereo_idx[1] = get_index(inlink, in);
+            stereo_duration = get_duration(s->stereo_idx);
 
             av_log(s, AV_LOG_INFO, "stereo_start: %f\n", s->stereo_idx[0]);
             av_log(s, AV_LOG_INFO, "stereo_end: %f | stereo_duration: %f\n", s->stereo_idx[1], stereo_duration);
@@ -269,17 +271,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             s->is_stereo = false;
         }
         if ((s->is_out_phase == false) && (fphase <= angle)) {
-            char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
-            float start_time = atof(start_time_str);
-            s->out_idx[0] = start_time;
+            s->out_idx[0] = get_index(inlink, in);
             s->is_out_phase = true;
         }
         if ((s->is_out_phase == true) && (fphase > angle)) {
-            char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
-            float end_time = atof(end_time_str);
             float out_phase_duration;
-            s->out_idx[1] = end_time;
-            out_phase_duration = s->out_idx[1] - s->out_idx[0];
+            s->out_idx[1] = get_index(inlink, in);
+            out_phase_duration = get_duration(s->out_idx);
 
             av_log(s, AV_LOG_INFO, "out_phase_start: %f\n", s->out_idx[0]);
             av_log(s, AV_LOG_INFO, "out_phase_end: %f | out_phase_duration: %f\n", s->out_idx[1], out_phase_duration);
