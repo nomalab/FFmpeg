@@ -35,27 +35,32 @@
 #include "internal.h"
 #include "libavutil/timestamp.h"
 #include "stdbool.h"
+#include "math.h"
 
 typedef struct AudioPhaseMeterContext {
     const AVClass *class;
     AVFrame *out;
     int do_video;
-    int do_mono_detection;
-    int do_stereo_detection;
+    int do_phasing_detection;
     int w, h;
     AVRational frame_rate;
     int contrast[4];
     uint8_t *mpc_str;
     uint8_t mpc[4];
     int draw_median_phase;
+    float tolerance;
+    float angle;
     bool is_mono;
     bool is_stereo;
+    bool is_out_phase;
     float mono_idx[2];
     float stereo_idx[2];
+    float out_idx[2];
 } AudioPhaseMeterContext;
 
 #define OFFSET(x) offsetof(AudioPhaseMeterContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
+#define pi 3.14159265359
 
 static const AVOption aphasemeter_options[] = {
     { "rate", "set video rate", OFFSET(frame_rate), AV_OPT_TYPE_VIDEO_RATE, {.str="25"}, 0, INT_MAX, FLAGS },
@@ -67,8 +72,9 @@ static const AVOption aphasemeter_options[] = {
     { "bc", "set blue contrast",  OFFSET(contrast[2]), AV_OPT_TYPE_INT, {.i64=1}, 0, 255, FLAGS },
     { "mpc", "set median phase color", OFFSET(mpc_str), AV_OPT_TYPE_STRING, {.str = "none"}, 0, 0, FLAGS },
     { "video", "set video output", OFFSET(do_video), AV_OPT_TYPE_BOOL, {.i64 = 1}, 0, 1, FLAGS },
-    { "monodetect", "detect mono", OFFSET(do_mono_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
-    { "stereodetect", "detect stereo", OFFSET(do_stereo_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
+    { "phasing", "set mono, stereo and out-of-phase output", OFFSET(do_phasing_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
+    { "tolerance", "set tolerance phase detection", OFFSET(tolerance), AV_OPT_TYPE_FLOAT, {.i64 = 0}, 0, 1, FLAGS },
+    { "angle", "set angle threshold for out-of-phase detection", OFFSET(angle), AV_OPT_TYPE_FLOAT, {.i64 = 175}, 0, 180, FLAGS },
     { NULL }
 };
 
@@ -222,14 +228,17 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         av_dict_set(metadata, "lavfi.aphasemeter.phase", value, 0);
     }
 
-    if (s->do_mono_detection) {
-        if ((s->is_mono == false) && (fphase == 1.0)) {
+    float tolerance = 1.0 - s->tolerance;
+    float angle = cos(s->angle/180.0*pi);
+
+    if (s->do_phasing_detection) {
+        if ((s->is_mono == false) && (fphase >= tolerance)) {
             char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
             float start_time = atof(start_time_str);
             s->mono_idx[0] = start_time;
             s->is_mono = true;
         }
-        else if ((s->is_mono == true) && (fphase != 1.0)) {
+        if ((s->is_mono == true) && (fphase < tolerance)) {
             char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
             float end_time = atof(end_time_str);
             float mono_duration;
@@ -241,16 +250,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
             s->is_mono = false;
         }
-    }
-
-    if (s->do_stereo_detection) {
-        if ((s->is_stereo == false) && (fphase != 1.0)) {
+        if ((s->is_stereo == false) && (fphase < tolerance)) {
             char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
             float start_time = atof(start_time_str);
             s->stereo_idx[0] = start_time;
             s->is_stereo = true;
         }
-        else if ((s->is_stereo == true) && (fphase == 1.0)) {
+        if ((s->is_stereo == true) && (fphase >= tolerance)) {
             char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
             float end_time = atof(end_time_str);
             float stereo_duration;
@@ -261,6 +267,24 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             av_log(s, AV_LOG_INFO, "stereo_end: %f | stereo_duration: %f\n", s->stereo_idx[1], stereo_duration);
 
             s->is_stereo = false;
+        }
+        if ((s->is_out_phase == false) && (fphase <= angle)) {
+            char *start_time_str = av_ts2timestr(in->pts, &inlink->time_base);
+            float start_time = atof(start_time_str);
+            s->out_idx[0] = start_time;
+            s->is_out_phase = true;
+        }
+        if ((s->is_out_phase == true) && (fphase > angle)) {
+            char *end_time_str = av_ts2timestr(in->pts, &inlink->time_base);
+            float end_time = atof(end_time_str);
+            float out_phase_duration;
+            s->out_idx[1] = end_time;
+            out_phase_duration = s->out_idx[1] - s->out_idx[0];
+
+            av_log(s, AV_LOG_INFO, "out_phase_start: %f\n", s->out_idx[0]);
+            av_log(s, AV_LOG_INFO, "out_phase_end: %f | out_phase_duration: %f\n", s->out_idx[1], out_phase_duration);
+
+            s->is_out_phase = false;
         }
     }
 
