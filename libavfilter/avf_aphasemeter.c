@@ -174,12 +174,12 @@ static float get_duration(float index[2])
 
 static void set_meta(AVFrame *insamples, const char *key, float value)
 {
-    char key2[128];
+    char buf[128];
     char str[12];
 
     sprintf(str, "%f", value);
-    snprintf(key2, sizeof(key2), "lavfi.aphasemeter.%s", key);
-    av_dict_set(&insamples->metadata, key2, str, 0);
+    sprintf(buf, "lavfi.aphasemeter.%s", key);
+    av_dict_set(&insamples->metadata, buf, str, 0);
 }
 
 static int filter_frame(AVFilterLink *inlink, AVFrame *in)
