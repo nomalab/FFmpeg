@@ -59,12 +59,12 @@ typedef struct AudioPhaseMeterContext {
     float out_idx[2];
     double duration;
     float phase;
+    bool start_presence;
 } AudioPhaseMeterContext;
 
 #define OFFSET(x) offsetof(AudioPhaseMeterContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 #define pi 3.14159265359
-#define EPSILON 1e-6
 
 static const AVOption aphasemeter_options[] = {
     { "rate", "set video rate", OFFSET(frame_rate), AV_OPT_TYPE_VIDEO_RATE, {.str="25"}, 0, INT_MAX, FLAGS },
@@ -258,98 +258,33 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     }
 
     if (s->do_phasing_detection) {
-        // if ((s->is_stereo == false) && ((tolerance - fphase) > EPSILON)) {
-        //     s->is_stereo = true;
-        //     s->stereo_idx[0] = get_index(inlink, in);
-        // }
-        if ((s->is_mono == false) && ((tolerance - fphase) < EPSILON)) {
+        if ((s->is_mono == false) && ((tolerance - fphase) < FLT_EPSILON)) {
             s->is_mono = true;
+            s->start_presence = true;
             s->mono_idx[0] = get_index(inlink, in);
-            // s->stereo_idx[1] = get_index(inlink, in);
         }
-        if ((s->is_mono == true) && ((tolerance - fphase) > EPSILON)) {
+        if ((s->is_mono == true) && ((tolerance - fphase) < FLT_EPSILON) && (s->start_presence == true)) {
+            float mono_duration;
+            s->mono_idx[1] = get_index(inlink, in);
+            mono_duration = get_duration(s->mono_idx);
+            if (mono_duration >= s->duration) {
+                set_meta(in, "mono_start", s->mono_idx[0]);
+                av_log(s, AV_LOG_INFO, "mono_start: %f\n", s->mono_idx[0]);
+                s->start_presence = false;
+            }
+        }
+        if ((s->is_mono == true) && ((tolerance - fphase) > FLT_EPSILON)) {
             float mono_duration;
             s->mono_idx[1] = get_index(inlink, in);
             mono_duration = get_duration(s->mono_idx);
             if (mono_duration > s->duration) {
-                // float stereo_duration;
-                // stereo_duration = get_duration(s->stereo_idx);
-                // set_meta(in, "stereo_start", s->stereo_idx[0]);
-                // av_log(s, AV_LOG_INFO, "stereo_start: %f\n", s->stereo_idx[0]);
-                // set_meta(in, "stereo_end", s->stereo_idx[1]);
-                // set_meta(in, "stereo_duration", stereo_duration);
-                // av_log(s, AV_LOG_INFO, "stereo_end: %f | stereo_duration: %f\n", s->stereo_idx[1], stereo_duration);
-                
-                set_meta(in, "mono_start", s->mono_idx[0]);
-                av_log(s, AV_LOG_INFO, "mono_start: %f\n", s->mono_idx[0]);
                 set_meta(in, "mono_end", s->mono_idx[1]);
                 set_meta(in, "mono_duration", mono_duration);
                 av_log(s, AV_LOG_INFO, "mono_end: %f | mono_duration: %f\n", s->mono_idx[1], mono_duration);
-                // s->stereo_idx[0] = get_index(inlink, in);
             }
             s->is_mono = false;
         }
-        // if ((s->is_mono == false) && (fphase >= tolerance)) {
-        // if ((s->is_mono == false) && ((tolerance - fphase) < EPSILON)) {
-        //     // printf("1\n");
-        //     s->mono_idx[0] = get_index(inlink, in);
-        //     s->is_mono = true;
-        //     if (s->is_stereo == true) {
-        //         float stereo_duration;
-        //         s->stereo_idx[1] = get_index(inlink, in);
-        //         stereo_duration = get_duration(s->stereo_idx);
-        //         set_meta(in, "stereo_start", s->stereo_idx[0]);
-        //         av_log(s, AV_LOG_INFO, "stereo_start: %f\n", s->stereo_idx[0]);
-        //         set_meta(in, "stereo_end", s->stereo_idx[1]);
-        //         set_meta(in, "stereo_duration", stereo_duration);
-        //         av_log(s, AV_LOG_INFO, "stereo_end: %f | stereo_duration: %f\n", s->stereo_idx[1], stereo_duration);
-        //         s->is_stereo = false;
-        //     }
-        // }
-        // // if ((s->is_mono == true) && ((fphase < tolerance) == true)) {
-        // if ((s->is_mono == true) && ((tolerance - fphase) > EPSILON)) {
-        //     // printf("2\n");
-        //     s->mono_idx[1] = get_index(inlink, in);
-        //     mono_duration = get_duration(s->mono_idx);
-        //     // printf("MONO %f\n", mono_duration);
-        //     if (mono_duration > s->duration) {
-        //         set_meta(in, "mono_start", s->mono_idx[0]);
-        //         av_log(s, AV_LOG_INFO, "mono_start: %f\n", s->mono_idx[0]);
-        //         set_meta(in, "mono_end", s->mono_idx[1]);
-        //         set_meta(in, "mono_duration", mono_duration);
-        //         av_log(s, AV_LOG_INFO, "mono_end: %f | mono_duration: %f\n", s->mono_idx[1], mono_duration);
-        //         s->stereo_idx[0] = get_index(inlink, in);
-        //         s->is_stereo = true;
-        //     }
-        //     s->is_mono = false;
-        // }
-        // if ((s->is_stereo == false) && (fphase < tolerance)) {
-        // if ((s->is_stereo == false) && ((tolerance - fphase) > EPSILON)) {
-        //     s->stereo_idx[0] = get_index(inlink, in);
-        //     // printf("3\n");
-        //     if (mono_duration > s->duration) {
-        //         s->is_stereo = true;
-        //     }
-        // }
-        // // if ((s->is_stereo == true) && (fphase >= tolerance)) {
-        // if ((s->is_stereo == true) && ((tolerance - fphase) < EPSILON)) {
-        //     // if (mono)
-        //     printf("%f\n", s->stereo_idx[0]);
-        //         float stereo_duration;
-        //         s->stereo_idx[1] = get_index(inlink, in);
-        //         stereo_duration = get_duration(s->stereo_idx);
-        //         // printf("PHASE %f >= %f --> %d   \n", fphase, tolerance, (fphase > 1.000000000000000000000000));
-        //         // PHASE 0.850380 >= 0.800000 --> 1   PHASE 0.757487 < 0.800000 --> 1   MONO END 1847.829956
 
-        //         set_meta(in, "stereo_start", s->stereo_idx[0]);
-        //         av_log(s, AV_LOG_INFO, "stereo_start: %f\n", s->stereo_idx[0]);
-        //         set_meta(in, "stereo_end", s->stereo_idx[1]);
-        //         set_meta(in, "stereo_duration", stereo_duration);
-        //         av_log(s, AV_LOG_INFO, "stereo_end: %f | stereo_duration: %f\n", s->stereo_idx[1], stereo_duration);
-
-        //         s->is_stereo = false;
-
-        // }
         if ((s->is_out_phase == false) && (fphase <= angle)) {
             s->out_idx[0] = get_index(inlink, in);
             s->is_out_phase = true;
@@ -385,16 +320,12 @@ static av_cold void uninit(AVFilterContext *ctx)
         float tolerance = 1.0 - s->tolerance;
         float mono_duration;
         AVFilterLink *inlink = ctx->inputs[0];
-        // AVFrame *in = inlink->partial_buf;
 
-        if ((s->is_mono == true) && (fabs(tolerance - s->phase) < EPSILON)) {
+        if ((s->is_mono == true) && (fabs(tolerance - s->phase) < FLT_EPSILON)) {
             char *index_str = av_ts2timestr(inlink->current_pts, &inlink->time_base);
             s->mono_idx[1] = atof(index_str);
             mono_duration = get_duration(s->mono_idx);
             if (mono_duration > s->duration) {
-                av_log(s, AV_LOG_INFO, "mono_start: %f\n", s->mono_idx[0]);
-                // set_meta(in, "mono_end", s->mono_idx[1]);
-                // set_meta(in, "mono_duration", mono_duration);
                 av_log(s, AV_LOG_INFO, "mono_end: %f | mono_duration: %f\n", s->mono_idx[1], mono_duration);
             }
             s->is_mono = false;
