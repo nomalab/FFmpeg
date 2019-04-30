@@ -52,10 +52,8 @@ typedef struct AudioPhaseMeterContext {
     float tolerance;
     float angle;
     bool is_mono;
-    bool is_stereo;
     bool is_out_phase;
     float mono_idx[2];
-    float stereo_idx[2];
     float out_idx[2];
     double duration;
     float phase;
@@ -76,7 +74,7 @@ static const AVOption aphasemeter_options[] = {
     { "bc", "set blue contrast",  OFFSET(contrast[2]), AV_OPT_TYPE_INT, {.i64=1}, 0, 255, FLAGS },
     { "mpc", "set median phase color", OFFSET(mpc_str), AV_OPT_TYPE_STRING, {.str = "none"}, 0, 0, FLAGS },
     { "video", "set video output", OFFSET(do_video), AV_OPT_TYPE_BOOL, {.i64 = 1}, 0, 1, FLAGS },
-    { "phasing", "set mono, stereo and out-of-phase output", OFFSET(do_phasing_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
+    { "phasing", "set mono and out-of-phase detection output", OFFSET(do_phasing_detection), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, FLAGS },
     { "tolerance", "set tolerance phase detection", OFFSET(tolerance), AV_OPT_TYPE_FLOAT, {.i64 = 0}, 0, 1, FLAGS },
     { "angle", "set angle threshold for out-of-phase detection", OFFSET(angle), AV_OPT_TYPE_FLOAT, {.i64 = 175}, 0, 180, FLAGS },
     { "duration",  "set minimum mono duration in seconds",  OFFSET(duration),  AV_OPT_TYPE_DOUBLE, {.dbl=2.}, 0, 24*60*60, FLAGS },
